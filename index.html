@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WORLD CLOCK</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0a;
+    --panel: #111111;
+    --border: #2a2a2a;
+    --amber: #ffaa00;
+    --amber-dim: #7a5200;
+    --amber-glow: rgba(255,170,0,0.12);
+    --text: #e8e0d0;
+    --muted: #666;
+    --red: #ff4444;
+    --green: #44ff88;
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* grain overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 999; opacity: 0.5;
+  }
+
+  header {
+    display: flex; align-items: baseline; gap: 16px;
+    padding: 28px 32px 20px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg); z-index: 10;
+  }
+
+  header h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(28px, 5vw, 48px);
+    letter-spacing: 0.12em;
+    color: var(--amber);
+    text-shadow: 0 0 30px rgba(255,170,0,0.4);
+  }
+
+  #utc-display {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-left: auto; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(68,255,136,0.4)} 50%{opacity:0.7;box-shadow:0 0 0 6px rgba(68,255,136,0)} }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1px;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .clock-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    padding: 24px 20px 20px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    position: relative;
+    transition: background 0.2s;
+    animation: fadeIn 0.4s ease both;
+  }
+
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  .clock-card:hover {
+    background: #161616;
+  }
+
+  .clock-card.is-local {
+    background: #140f00;
+    border-color: var(--amber-dim);
+  }
+  .clock-card.is-local::after {
+    content: 'YOU';
+    position: absolute; top: 8px; right: 10px;
+    font-size: 9px; letter-spacing: 0.15em;
+    color: var(--amber); font-family: 'Bebas Neue', sans-serif;
+  }
+
+  .clock-card.is-day { --card-accent: #ffaa00; }
+  .clock-card.is-night { --card-accent: #4488ff; }
+  .clock-card.is-dawn { --card-accent: #ff8844; }
+
+  /* Analog clock SVG */
+  .clock-svg-wrap {
+    position: relative;
+    width: 120px; height: 120px;
+  }
+
+  canvas.clock-canvas {
+    width: 120px; height: 120px;
+    border-radius: 50%;
+  }
+
+  .tz-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    position: absolute;
+    top: 6px; left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  .time-digital {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 22px;
+    letter-spacing: 0.05em;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .time-date {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .countries {
+    width: 100%;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+
+  .country-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+    color: #bbb;
+    letter-spacing: 0.03em;
+  }
+
+  .flag { font-size: 16px; line-height: 1; }
+
+  .utc-badge {
+    font-size: 10px;
+    color: var(--amber-dim);
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.05em;
+    background: rgba(255,170,0,0.06);
+    padding: 2px 6px;
+    border: 1px solid rgba(255,170,0,0.15);
+    align-self: flex-start;
+    border-radius: 2px;
+  }
+
+  .day-night-bar {
+    width: 100%;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+    margin-top: 4px;
+  }
+
+  .day-night-fill {
+    height: 100%;
+    background: var(--card-accent, var(--amber));
+    transition: width 1s linear;
+    box-shadow: 0 0 8px var(--card-accent, var(--amber));
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>WORLD CLOCK</h1>
+  <span id="utc-display">UTC —</span>
+  <div class="dot"></div>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<script>
+const ZONES = [
+  { utc: -12, label: 'UTC−12', countries: [{ flag:'🇼🇫', name:'Baker Is.' }] },
+  { utc: -11, label: 'UTC−11', countries: [{ flag:'🇼🇸', name:'Samoa' }, { flag:'🇹🇴', name:'Tonga' }] },
+  { utc: -10, label: 'UTC−10', countries: [{ flag:'🇺🇸', name:'Hawaii' }, { flag:'🇨🇰', name:'Cook Is.' }] },
+  { utc: -9,  label: 'UTC−9',  countries: [{ flag:'🇺🇸', name:'Alaska' }] },
+  { utc: -8,  label: 'UTC−8',  countries: [{ flag:'🇺🇸', name:'US West' }, { flag:'🇨🇦', name:'Canada BC' }] },
+  { utc: -7,  label: 'UTC−7',  countries: [{ flag:'🇺🇸', name:'US Mountain' }, { flag:'🇲🇽', name:'Mexico (N)' }] },
+  { utc: -6,  label: 'UTC−6',  countries: [{ flag:'🇺🇸', name:'US Central' }, { flag:'🇲🇽', name:'Mexico City' }, { flag:'🇬🇹', name:'Guatemala' }] },
+  { utc: -5,  label: 'UTC−5',  countries: [{ flag:'🇺🇸', name:'US East' }, { flag:'🇧🇷', name:'Brazil (W)' }, { flag:'🇨🇴', name:'Colombia' }, { flag:'🇵🇪', name:'Peru' }] },
+  { utc: -4,  label: 'UTC−4',  countries: [{ flag:'🇻🇪', name:'Venezuela' }, { flag:'🇧🇴', name:'Bolivia' }, { flag:'🇨🇱', name:'Chile' }] },
+  { utc: -3,  label: 'UTC−3',  countries: [{ flag:'🇧🇷', name:'Brazil (E)' }, { flag:'🇦🇷', name:'Argentina' }, { flag:'🇺🇾', name:'Uruguay' }] },
+  { utc: -1,  label: 'UTC−1',  countries: [{ flag:'🇨🇻', name:'Cape Verde' }, { flag:'🇵🇹', name:'Azores' }] },
+  { utc:  0,  label: 'UTC+0',  countries: [{ flag:'🇬🇧', name:'UK' }, { flag:'🇵🇹', name:'Portugal' }, { flag:'🇬🇭', name:'Ghana' }, { flag:'🇲🇦', name:'Morocco' }] },
+  { utc:  1,  label: 'UTC+1',  countries: [{ flag:'🇩🇪', name:'Germany' }, { flag:'🇫🇷', name:'France' }, { flag:'🇳🇬', name:'Nigeria' }, { flag:'🇮🇹', name:'Italy' }, { flag:'🇪🇸', name:'Spain' }] },
+  { utc:  2,  label: 'UTC+2',  countries: [{ flag:'🇿🇦', name:'South Africa' }, { flag:'🇪🇬', name:'Egypt' }, { flag:'🇬🇷', name:'Greece' }, { flag:'🇺🇦', name:'Ukraine' }] },
+  { utc:  3,  label: 'UTC+3',  countries: [{ flag:'🇸🇦', name:'Saudi Arabia' }, { flag:'🇷🇺', name:'Moscow' }, { flag:'🇰🇪', name:'Kenya' }, { flag:'🇹🇷', name:'Turkey' }] },
+  { utc:  4,  label: 'UTC+4',  countries: [{ flag:'🇦🇪', name:'UAE' }, { flag:'🇴🇲', name:'Oman' }, { flag:'🇦🇲', name:'Armenia' }] },
+  { utc:  4.5,label: 'UTC+4:30',countries: [{ flag:'🇦🇫', name:'Afghanistan' }] },
+  { utc:  5,  label: 'UTC+5',  countries: [{ flag:'🇵🇰', name:'Pakistan' }, { flag:'🇺🇿', name:'Uzbekistan' }] },
+  { utc:  5.5,label: 'UTC+5:30',countries: [{ flag:'🇮🇳', name:'India' }, { flag:'🇱🇰', name:'Sri Lanka' }] },
+  { utc:  5.75,label:'UTC+5:45',countries: [{ flag:'🇳🇵', name:'Nepal' }] },
+  { utc:  6,  label: 'UTC+6',  countries: [{ flag:'🇧🇩', name:'Bangladesh' }, { flag:'🇰🇿', name:'Kazakhstan' }] },
+  { utc:  7,  label: 'UTC+7',  countries: [{ flag:'🇹🇭', name:'Thailand' }, { flag:'🇻🇳', name:'Vietnam' }, { flag:'🇮🇩', name:'Indonesia (W)' }] },
+  { utc:  8,  label: 'UTC+8',  countries: [{ flag:'🇨🇳', name:'China' }, { flag:'🇸🇬', name:'Singapore' }, { flag:'🇵🇭', name:'Philippines' }, { flag:'🇲🇾', name:'Malaysia' }] },
+  { utc:  9,  label: 'UTC+9',  countries: [{ flag:'🇯🇵', name:'Japan' }, { flag:'🇰🇷', name:'South Korea' }] },
+  { utc:  9.5,label: 'UTC+9:30',countries: [{ flag:'🇦🇺', name:'Darwin' }] },
+  { utc: 10,  label: 'UTC+10', countries: [{ flag:'🇦🇺', name:'Sydney' }, { flag:'🇵🇬', name:'Papua NG' }] },
+  { utc: 12,  label: 'UTC+12', countries: [{ flag:'🇳🇿', name:'New Zealand' }, { flag:'🇫🇯', name:'Fiji' }] },
+];
+
+function getLocalUTCOffset() {
+  return -new Date().getTimezoneOffset() / 60;
+}
+
+function getTimeInZone(utcOffset) {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utcMs + utcOffset * 3600000);
+}
+
+function pad(n) { return String(Math.floor(n)).padStart(2, '0'); }
+
+function formatTime(d) {
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function formatDate(d) {
+  const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+function getDayPhase(h) {
+  if (h >= 6 && h < 8) return 'dawn';
+  if (h >= 8 && h < 20) return 'day';
+  return 'night';
+}
+
+function drawClock(canvas, zoneTime, color) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2, r = W / 2 - 4;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Dial bg
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#0e0e0e';
+  ctx.fill();
+  ctx.strokeStyle = color + '55';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Hour marks
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+    const outer = r - 4;
+    const inner = i % 3 === 0 ? r - 14 : r - 10;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
+    ctx.lineTo(cx + Math.cos(a) * outer, cy + Math.sin(a) * outer);
+    ctx.strokeStyle = i % 3 === 0 ? color + 'aa' : color + '44';
+    ctx.lineWidth = i % 3 === 0 ? 2 : 1;
+    ctx.stroke();
+  }
+
+  const h = zoneTime.getHours() % 12 + zoneTime.getMinutes() / 60;
+  const m = zoneTime.getMinutes() + zoneTime.getSeconds() / 60;
+  const s = zoneTime.getSeconds();
+
+  function hand(angle, length, width, col, glow) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.shadowColor = glow || 'transparent';
+    ctx.shadowBlur = glow ? 8 : 0;
+    ctx.beginPath();
+    ctx.moveTo(0, 8);
+    ctx.lineTo(0, -length);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  hand((h / 12) * Math.PI * 2 - Math.PI / 2, r * 0.5, 2.5, color + 'cc');
+  hand((m / 60) * Math.PI * 2 - Math.PI / 2, r * 0.72, 1.8, color + 'dd');
+  hand((s / 60) * Math.PI * 2 - Math.PI / 2, r * 0.82, 1, '#ff4444', '#ff4444');
+
+  // Center dot
+  ctx.beginPath();
+  ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+const localOffset = getLocalUTCOffset();
+const grid = document.getElementById('grid');
+
+const cards = ZONES.map((zone, idx) => {
+  const isLocal = zone.utc === localOffset;
+  const card = document.createElement('div');
+  card.className = 'clock-card';
+  if (isLocal) card.classList.add('is-local');
+  card.style.animationDelay = (idx * 0.03) + 's';
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'clock-canvas';
+  canvas.width = 180; canvas.height = 180;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'clock-svg-wrap';
+  wrap.appendChild(canvas);
+
+  const digital = document.createElement('div');
+  digital.className = 'time-digital';
+
+  const dateEl = document.createElement('div');
+  dateEl.className = 'time-date';
+
+  const badge = document.createElement('div');
+  badge.className = 'utc-badge';
+  badge.textContent = zone.label;
+
+  const countries = document.createElement('div');
+  countries.className = 'countries';
+  zone.countries.forEach(c => {
+    const row = document.createElement('div');
+    row.className = 'country-row';
+    row.innerHTML = `<span class="flag">${c.flag}</span><span>${c.name}</span>`;
+    countries.appendChild(row);
+  });
+
+  const bar = document.createElement('div');
+  bar.className = 'day-night-bar';
+  const fill = document.createElement('div');
+  fill.className = 'day-night-fill';
+  bar.appendChild(fill);
+
+  card.append(wrap, badge, digital, dateEl, bar, countries);
+  grid.appendChild(card);
+
+  return { zone, canvas, digital, dateEl, card, fill };
+});
+
+function updateAll() {
+  const nowUtc = new Date();
+  const utcStr = `UTC ${pad(nowUtc.getUTCHours())}:${pad(nowUtc.getUTCMinutes())}:${pad(nowUtc.getUTCSeconds())}`;
+  document.getElementById('utc-display').textContent = utcStr;
+
+  cards.forEach(({ zone, canvas, digital, dateEl, card, fill }) => {
+    const t = getTimeInZone(zone.utc);
+    const h = t.getHours();
+    const phase = getDayPhase(h);
+
+    card.classList.remove('is-day','is-night','is-dawn');
+    card.classList.add('is-' + phase);
+
+    const color = phase === 'day' ? '#ffaa00' : phase === 'dawn' ? '#ff8844' : '#4488ff';
+    drawClock(canvas, t, color);
+
+    digital.textContent = formatTime(t);
+    dateEl.textContent = formatDate(t);
+
+    // Day progress bar: 0-24h mapped to 0-100%
+    const pct = (h * 60 + t.getMinutes()) / (24 * 60) * 100;
+    fill.style.width = pct + '%';
+  });
+}
+
+updateAll();
+setInterval(updateAll, 1000);
+</script>
+</body>
+</html>
